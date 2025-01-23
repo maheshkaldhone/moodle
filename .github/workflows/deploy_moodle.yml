@@ -52,9 +52,9 @@ jobs:
       # Step 3: Backup Moodle Directory
       - name: Backup Moodle Directory
         run: |
-          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.SSH_BASTION_HOST }} << 'EOF'
-          ssh ubuntu@${{ secrets.SSH_MOODLE_HOST }} "mkdir -p $BACKUP_DIR"
-          ssh ubuntu@${{ secrets.SSH_MOODLE_HOST }} "tar -czf $BACKUP_DIR/moodle-$(date +%F-%H%M%S).tar.gz $MOODLE_DIR"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_PRIVATE_KEY }} ubuntu@${{ secrets.SSH_BASTION_HOST }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_PRIVATE_KEY }} ubuntu@${{ secrets.SSH_MOODLE_HOST }} "mkdir -p $BACKUP_DIR"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_PRIVATE_KEY }} ubuntu@${{ secrets.SSH_MOODLE_HOST }} "tar -czf $BACKUP_DIR/moodle-$(date +%F-%H%M%S).tar.gz $MOODLE_DIR"
           echo "Backup created at $BACKUP_DIR"
           EOF
 
@@ -62,7 +62,7 @@ jobs:
       - name: Deploy Based on Type
         run: |
           ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.SSH_BASTION_HOST }} << 'EOF'
-          ssh ubuntu@${{ secrets.SSH_MOODLE_HOST }} << 'SHELF'
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_PRIVATE_KEY }} ubuntu@${{ secrets.SSH_MOODLE_HOST }} << 'SHELF'
             case "${{ inputs.deployment_type }}" in
               core)
                 echo "Deploying Moodle core files..."
@@ -103,5 +103,5 @@ jobs:
       - name: Verify Deployment
         run: |
           ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.SSH_BASTION_HOST }} << 'EOF'
-          ssh ubuntu@${{ secrets.SSH_MOODLE_HOST }} "php $MOODLE_DIR/admin/cli/checks.php"
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_PRIVATE_KEY }} ubuntu@${{ secrets.SSH_MOODLE_HOST }} "php $MOODLE_DIR/admin/cli/checks.php"
           EOF
