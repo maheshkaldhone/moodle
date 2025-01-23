@@ -1,0 +1,107 @@
+name: Moodle Deployment Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_type:
+        description: 'Type of deployment (core, plugin, theme, config, content)'
+        required: true
+        default: 'plugin'
+        type: choice
+        options:
+          - plugin
+          - core
+          - theme
+          - config
+          - content
+      plugin_name:
+        description: 'Plugin name (if deploying a plugin)'
+        required: false
+        default: ''
+      branch_name:
+        description: 'Branch name for deployment'
+        required: false
+        default: 'main'
+
+jobs:
+  deploy:
+    name: Deploy to Moodle Instance
+    runs-on: ubuntu-latest
+
+    env:
+      MOODLE_DIR: /var/www/html/moodle
+      MOODLEDATA_DIR: /var/www/html/moodledata
+      BACKUP_DIR: /tmp/moodle_backup
+      SSH_BASTION_HOST: ${{ secrets.SSH_BASTION_HOST }}
+      SSH_MOODLE_HOST: ${{ secrets.SSH_MOODLE_HOST }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ inputs.branch_name }}
+
+      # Step 2: Set up SSH connection using the private key
+      - name: Set up SSH connection
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Step 3: Backup Moodle Directory
+      - name: Backup Moodle Directory
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.SSH_BASTION_HOST }} << 'EOF'
+          ssh ubuntu@${{ secrets.SSH_MOODLE_HOST }} "mkdir -p $BACKUP_DIR"
+          ssh ubuntu@${{ secrets.SSH_MOODLE_HOST }} "tar -czf $BACKUP_DIR/moodle-$(date +%F-%H%M%S).tar.gz $MOODLE_DIR"
+          echo "Backup created at $BACKUP_DIR"
+          EOF
+
+      # Step 4: Deploy based on type (core, plugin, theme, config, content)
+      - name: Deploy Based on Type
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.SSH_BASTION_HOST }} << 'EOF'
+          ssh ubuntu@${{ secrets.SSH_MOODLE_HOST }} << 'SHELF'
+            case "${{ inputs.deployment_type }}" in
+              core)
+                echo "Deploying Moodle core files..."
+                rsync -avz --exclude='.git' ./moodle/* $MOODLE_DIR/
+                php $MOODLE_DIR/admin/cli/upgrade.php --non-interactive
+                php $MOODLE_DIR/admin/cli/purge_caches.php
+                ;;
+              plugin)
+                echo "Deploying plugin: ${{ inputs.plugin_name }}"
+                rsync -avz ./plugins/${{ inputs.plugin_name }} $MOODLE_DIR/mod/${{ inputs.plugin_name }}
+                php $MOODLE_DIR/admin/cli/upgrade.php --non-interactive
+                php $MOODLE_DIR/admin/cli/purge_caches.php
+                ;;
+              theme)
+                echo "Deploying theme..."
+                rsync -avz ./themes/* $MOODLE_DIR/theme/
+                php $MOODLE_DIR/admin/cli/upgrade.php --non-interactive
+                php $MOODLE_DIR/admin/cli/purge_caches.php
+                ;;
+              config)
+                echo "Deploying configuration changes..."
+                rsync -avz ./config.php $MOODLE_DIR/
+                php $MOODLE_DIR/admin/cli/purge_caches.php
+                ;;
+              content)
+                echo "Deploying content updates..."
+                rsync -avz ./course_content/* $MOODLE_DIR/course_content/
+                ;;
+              *)
+                echo "Unknown deployment type: ${{ inputs.deployment_type }}"
+                exit 1
+                ;;
+            esac
+          SHELF
+          EOF
+
+      # Step 5: Verify Deployment
+      - name: Verify Deployment
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.SSH_BASTION_HOST }} << 'EOF'
+          ssh ubuntu@${{ secrets.SSH_MOODLE_HOST }} "php $MOODLE_DIR/admin/cli/checks.php"
+          EOF
