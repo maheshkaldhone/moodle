@@ -17,10 +17,9 @@ jobs:
       # Step 1: Run pre-execution script on the self-hosted runner
       - name: Run pre-execution script (./run.sh)
         run: |
-          chmod +x ./run.sh  # Ensure the script is executable
-          ./run.sh           # Execute the script
-        working-directory: /path/to/your/script  # Path to the directory where run.sh is located
-
+          chmod +x ./run.sh  
+          ./run.sh          
+        working-directory: /home/ubuntu/actions-runner  
       # Step 2: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v3
