@@ -1,0 +1,64 @@
+name: Moodle Plugin Deployment Workflow
+
+on:
+  push:
+    paths:
+      - 'mod/**' # Triggers only when changes are pushed to the mod directory
+
+jobs:
+  deploy:
+    name: Deploy Moodle Plugin
+    runs-on: self-hosted
+
+    env:
+      MOODLE_SERVER_PRIVATE_IP: ${{ secrets.MOODLE_SERVER_PRIVATE_IP }}
+
+    steps:
+      # Step 1: Run pre-execution script on the self-hosted runner
+      - name: Run pre-execution script (./run.sh)
+        run: |
+          chmod +x ./run.sh  
+          ./run.sh          
+        working-directory: /home/ubuntu/actions-runner  
+      # Step 2: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      # Step 3: Compress the plugin directory
+      - name: Create ZIP for the plugin directory
+        run: |
+          cd mod
+          zip -r plugin.zip ./*
+          mv plugin.zip ../plugin.zip
+          echo "ZIP file created: plugin.zip"
+
+      # Step 4: Setup SSH key for server access
+      - name: Setup SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.MOODLE_SERVER_PRIVATE_IP }} >> ~/.ssh/known_hosts
+
+      # Step 5: Upload Plugin ZIP to Moodle server
+      - name: Upload Plugin ZIP to Moodle server
+        run: |
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa plugin.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
+          echo "Plugin ZIP uploaded to the Moodle server."
+
+      # Step 6: Deploy Plugin on Moodle server
+      - name: Deploy Plugin
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }} << 'EOF'
+          # Extract the plugin ZIP to the Moodle plugins directory
+          sudo unzip -o /home/ubuntu/plugin.zip -d /var/www/html/moodle/mod/
+
+          # Set correct ownership and permissions
+          sudo chown -R www-data:www-data /var/www/html/moodle/mod/
+          sudo chmod -R 755 /var/www/html/moodle/mod/
+
+          # Perform Moodle CLI upgrade
+          sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
+          EOF
+          echo "Plugin deployed and Moodle upgraded successfully."

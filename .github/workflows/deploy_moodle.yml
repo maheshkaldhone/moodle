@@ -1,13 +1,14 @@
-name: Moodle Plugin Deployment Workflow
+name: Moodle Plugin and Theme Deployment Workflow
 
 on:
   push:
     paths:
-      - 'mod/**' # Triggers only when changes are pushed to the mod directory
+      - 'mod/**'    # Triggers when changes are pushed to the mod directory
+      - 'theme/**'  # Triggers when changes are pushed to the theme directory
 
 jobs:
   deploy:
-    name: Deploy Moodle Plugin
+    name: Deploy Moodle Plugin and Theme
     runs-on: self-hosted
 
     env:
@@ -17,22 +18,37 @@ jobs:
       # Step 1: Run pre-execution script on the self-hosted runner
       - name: Run pre-execution script (./run.sh)
         run: |
-          chmod +x ./run.sh  
-          ./run.sh          
+          chmod +x /home/ubuntu/actions-runner/run.sh  
+          /home/ubuntu/actions-runner/run.sh
+
         working-directory: /home/ubuntu/actions-runner  
+
       # Step 2: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 1
 
-      # Step 3: Compress the plugin directory
-      - name: Create ZIP for the plugin directory
+      # Step 3: Compress the plugin and theme directories
+      - name: Create ZIPs for plugin and theme directories
         run: |
-          cd mod
-          zip -r plugin.zip ./*
-          mv plugin.zip ../plugin.zip
-          echo "ZIP file created: plugin.zip"
+          # Compress plugins
+          if [ -d "mod" ]; then
+            cd mod
+            zip -r plugin.zip ./*
+            mv plugin.zip ../plugin.zip
+            echo "Plugin ZIP created: plugin.zip"
+            cd ..
+          fi
+
+          # Compress themes
+          if [ -d "theme" ]; then
+            cd theme
+            zip -r theme.zip ./*
+            mv theme.zip ../theme.zip
+            echo "Theme ZIP created: theme.zip"
+            cd ..
+          fi
 
       # Step 4: Setup SSH key for server access
       - name: Setup SSH key
@@ -41,24 +57,40 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ env.MOODLE_SERVER_PRIVATE_IP }} >> ~/.ssh/known_hosts
 
-      # Step 5: Upload Plugin ZIP to Moodle server
-      - name: Upload Plugin ZIP to Moodle server
+      # Step 5: Upload Plugin and Theme ZIPs to Moodle server
+      - name: Upload Plugin and Theme ZIPs to Moodle server
         run: |
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa plugin.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
-          echo "Plugin ZIP uploaded to the Moodle server."
+          if [ -f "plugin.zip" ]; then
+            scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa plugin.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
+            echo "Plugin ZIP uploaded to the Moodle server."
+          fi
 
-      # Step 6: Deploy Plugin on Moodle server
-      - name: Deploy Plugin
+          if [ -f "theme.zip" ]; then
+            scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa theme.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
+            echo "Theme ZIP uploaded to the Moodle server."
+          fi
+
+      # Step 6: Deploy Plugin and Theme on Moodle server
+      - name: Deploy Plugin and Theme
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }} << 'EOF'
-          # Extract the plugin ZIP to the Moodle plugins directory
-          sudo unzip -o /home/ubuntu/plugin.zip -d /var/www/html/moodle/mod/
+          # Deploy plugins if plugin.zip exists
+          if [ -f "/home/ubuntu/plugin.zip" ]; then
+            sudo unzip -o /home/ubuntu/plugin.zip -d /var/www/html/moodle/mod/
+            sudo chown -R www-data:www-data /var/www/html/moodle/mod/
+            sudo chmod -R 755 /var/www/html/moodle/mod/
+            echo "Plugin deployed."
+          fi
 
-          # Set correct ownership and permissions
-          sudo chown -R www-data:www-data /var/www/html/moodle/mod/
-          sudo chmod -R 755 /var/www/html/moodle/mod/
+          # Deploy themes if theme.zip exists
+          if [ -f "/home/ubuntu/theme.zip" ]; then
+            sudo unzip -o /home/ubuntu/theme.zip -d /var/www/html/moodle/theme/
+            sudo chown -R www-data:www-data /var/www/html/moodle/theme/
+            sudo chmod -R 755 /var/www/html/moodle/theme/
+            echo "Theme deployed."
+          fi
 
           # Perform Moodle CLI upgrade
           sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
           EOF
-          echo "Plugin deployed and Moodle upgraded successfully."
+          echo "Plugin and Theme deployed and Moodle upgraded successfully."
