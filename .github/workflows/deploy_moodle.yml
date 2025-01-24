@@ -14,13 +14,20 @@ jobs:
       MOODLE_SERVER_PRIVATE_IP: ${{ secrets.MOODLE_SERVER_PRIVATE_IP }}
 
     steps:
-      # Step 1: Checkout the repository
+      # Step 1: Run pre-execution script on the self-hosted runner
+      - name: Run pre-execution script (./run.sh)
+        run: |
+          chmod +x ./run.sh  # Ensure the script is executable
+          ./run.sh           # Execute the script
+        working-directory: /path/to/your/script  # Path to the directory where run.sh is located
+
+      # Step 2: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 1
 
-      # Step 2: Compress the plugin directory
+      # Step 3: Compress the plugin directory
       - name: Create ZIP for the plugin directory
         run: |
           cd mod
@@ -28,20 +35,20 @@ jobs:
           mv plugin.zip ../plugin.zip
           echo "ZIP file created: plugin.zip"
 
-      # Step 3: Setup SSH key for server access
+      # Step 4: Setup SSH key for server access
       - name: Setup SSH key
         run: |
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ env.MOODLE_SERVER_PRIVATE_IP }} >> ~/.ssh/known_hosts
 
-      # Step 4: Upload Plugin ZIP to Moodle server
+      # Step 5: Upload Plugin ZIP to Moodle server
       - name: Upload Plugin ZIP to Moodle server
         run: |
           scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa plugin.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
           echo "Plugin ZIP uploaded to the Moodle server."
 
-      # Step 5: Deploy Plugin on Moodle server
+      # Step 6: Deploy Plugin on Moodle server
       - name: Deploy Plugin
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }} << 'EOF'
