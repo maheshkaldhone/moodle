@@ -1,9 +1,12 @@
 name: Moodle Deployment
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: "Specify the directory to deploy (mod or themes)"
+        required: true
+        default: "mod"
 
 jobs:
   fetch-and-deploy:
@@ -14,12 +17,8 @@ jobs:
 
       - name: Set Deploy Target
         run: |
-          # Define the deploy target (mod or themes)
-          DEPLOY_TARGET=${{ github.event.inputs.deploy_target }}
-          if [[ -z "$DEPLOY_TARGET" ]]; then
-            echo "DEPLOY_TARGET not provided. Defaulting to 'mod'."
-            DEPLOY_TARGET="mod"
-          fi
+          # Read the deploy target from inputs
+          DEPLOY_TARGET="${{ github.event.inputs.deploy_target }}"
           echo "Deploying target: $DEPLOY_TARGET"
           echo "DEPLOY_TARGET=$DEPLOY_TARGET" >> $GITHUB_ENV
 
