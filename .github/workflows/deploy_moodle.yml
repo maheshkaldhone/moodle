@@ -1,112 +1,41 @@
-name: Moodle Plugin and Theme Deployment Workflow
+name: Moodle Deployment
 
 on:
   push:
-    paths:
-      - 'mod/**'    # Triggers when changes are pushed to the mod directory
-      - 'theme/**'  # Triggers when changes are pushed to the theme directory
+    branches:
+      - main
 
 jobs:
   fetch-and-build:
-    name: Fetch and Build Plugin and Theme
-    runs-on: ubuntu-latest  # GitHub-hosted runner for fetch and build steps
+    runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the repository
       - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 1
+        uses: actions/checkout@v2
 
-      # Step 2: Fetch changes between the previous commit and the current one
-      - name: Fetch changes and identify modified files
+      - name: Zip mod directory
         run: |
-          git fetch origin ${{ github.event.before }} --depth=1
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -E '^mod/|^theme/')
-          echo "${CHANGED_FILES}" > changed_files.txt
-
-          # Check for changes in `mod` directory
-          MOD_CHANGED=$(echo "${CHANGED_FILES}" | grep '^mod/' || true)
-          echo "MOD_CHANGED=${MOD_CHANGED}" >> $GITHUB_ENV
-
-          # Check for changes in `theme` directory
-          THEME_CHANGED=$(echo "${CHANGED_FILES}" | grep '^theme/' || true)
-          echo "THEME_CHANGED=${THEME_CHANGED}" >> $GITHUB_ENV
-
-      # Step 3: Create ZIP files for plugin and theme if changes are detected
-      - name: Create ZIPs for plugin and theme directories
-        run: |
-          # Create ZIP for plugin directory if it has changes
-          if [ -n "$MOD_CHANGED" ]; then
-            cd mod
-            zip -r plugin.zip ./*
-            mv plugin.zip ../plugin.zip
-            echo "Plugin ZIP created: plugin.zip"
-            cd ..
-          fi
-
-          # Create ZIP for theme directory if it has changes
-          if [ -n "$THEME_CHANGED" ]; then
-            cd theme
-            zip -r theme.zip ./*
-            mv theme.zip ../theme.zip
-            echo "Theme ZIP created: theme.zip"
-            cd ..
-          fi
+          # Zip the `mod` directory
+          zip -r mod.zip ./mod
+          # Save the zip file as an artifact to be used in the deploy job
+          mv mod.zip $GITHUB_ENV.MOD_ZIP_PATH=./mod.zip
 
   deploy:
-    name: Deploy on Self-hosted Runner (Moodle Server)
-    runs-on: self-hosted  # Self-hosted runner for deployment
-
-    needs: fetch-and-build  # Ensure fetch-and-build job runs before deploy
-
-    env:
-      MOODLE_SERVER_PRIVATE_IP: ${{ secrets.MOODLE_SERVER_PRIVATE_IP }}
+    runs-on: [self-hosted, moodle-server]  # Using the Moodle server as the runner for deployment
+    needs: fetch-and-build
 
     steps:
-      # Step 1: Checkout repository (on self-hosted runner)
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 1
+      - name: Checkout repository on self-hosted runner
+        uses: actions/checkout@v2
 
-      # Step 2: Upload Plugin ZIP to Moodle server if mod has changed
-      - name: Upload Plugin ZIP to Moodle server
-        if: env.MOD_CHANGED != ''
+      - name: Backup current mod directory
         run: |
-          if [ -f "plugin.zip" ]; then
-            cp plugin.zip /var/www/html/moodle/mod/
-            echo "Plugin ZIP copied to the Moodle server."
-          fi
+          # Backup the current `mod` directory to `/tmp`
+          mv /var/www/html/moodle/mod /tmp/mod_backup
+          echo "Backup created at /tmp/mod_backup"
 
-      # Step 3: Upload Theme ZIP to Moodle server if theme has changed
-      - name: Upload Theme ZIP to Moodle server
-        if: env.THEME_CHANGED != ''
+      - name: Deploy new mod directory
         run: |
-          if [ -f "theme.zip" ]; then
-            cp theme.zip /var/www/html/moodle/theme/
-            echo "Theme ZIP copied to the Moodle server."
-          fi
-
-      # Step 4: Deploy Plugin and Theme on Moodle server
-      - name: Deploy Plugin and Theme
-        run: |
-          # Deploy plugin if plugin.zip exists
-          if [ -f "/var/www/html/moodle/mod/plugin.zip" ]; then
-            sudo unzip -o /var/www/html/moodle/mod/plugin.zip -d /var/www/html/moodle/mod/
-            sudo chown -R www-data:www-data /var/www/html/moodle/mod/
-            sudo chmod -R 755 /var/www/html/moodle/mod/
-            echo "Plugin deployed."
-          fi
-
-          # Deploy theme if theme.zip exists
-          if [ -f "/var/www/html/moodle/theme/theme.zip" ]; then
-            sudo unzip -o /var/www/html/moodle/theme/theme.zip -d /var/www/html/moodle/theme/
-            sudo chown -R www-data:www-data /var/www/html/moodle/theme/
-            sudo chmod -R 755 /var/www/html/moodle/theme/
-            echo "Theme deployed."
-          fi
-
-          # Perform Moodle CLI upgrade
-          sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
-          echo "Plugin and Theme deployed and Moodle upgraded successfully."
+          # Extract the zip file into the mod directory
+          unzip ${{env.MOD_ZIP_PATH}} -d /var/www/html/moodle/
+          echo "Deployed the new mod directory"
