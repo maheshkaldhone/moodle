@@ -21,9 +21,13 @@ jobs:
 
       - name: Backup current mod directory
         run: |
-          # Backup the current `mod` directory to `/tmp`
-          sudo mv /var/www/html/moodle/mod /tmp/mod_backup
-          echo "Backup created at /tmp/mod_backup"
+          # Create a timestamp for the backup
+          TIMESTAMP=$(date +'%Y%m%d%H%M%S')
+          BACKUP_PATH="/tmp/mod_backup_$TIMESTAMP.zip"
+          
+          # Zip the current mod directory with the timestamp in the name
+          sudo zip -r "$BACKUP_PATH" /var/www/html/moodle/mod
+          echo "Backup created at $BACKUP_PATH"
 
       - name: Deploy new mod directory
         run: |
