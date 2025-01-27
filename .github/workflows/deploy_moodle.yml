@@ -12,25 +12,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Zip mod directory
+      - name: Set Deploy Target
         run: |
-          # Zip the `mod` directory
-          zip -r mod.zip ./mod
-          # Set the zip file path as an environment variable
-          echo "MOD_ZIP_PATH=$(pwd)/mod.zip" >> $GITHUB_ENV
+          # Define the deploy target (mod or themes)
+          DEPLOY_TARGET=${{ github.event.inputs.deploy_target }}
+          if [[ -z "$DEPLOY_TARGET" ]]; then
+            echo "DEPLOY_TARGET not provided. Defaulting to 'mod'."
+            DEPLOY_TARGET="mod"
+          fi
+          echo "Deploying target: $DEPLOY_TARGET"
+          echo "DEPLOY_TARGET=$DEPLOY_TARGET" >> $GITHUB_ENV
 
-      - name: Backup current mod directory
+      - name: Zip selected directory
+        run: |
+          # Zip the selected directory
+          zip -r "${DEPLOY_TARGET}.zip" "./$DEPLOY_TARGET"
+          echo "ZIP_PATH=$(pwd)/${DEPLOY_TARGET}.zip" >> $GITHUB_ENV
+
+      - name: Backup current directory
         run: |
           # Create a timestamp for the backup
           TIMESTAMP=$(date +'%Y%m%d%H%M%S')
-          BACKUP_PATH="/tmp/mod_backup_$TIMESTAMP.zip"
-          
-          # Zip the current mod directory with the timestamp in the name
-          sudo zip -r "$BACKUP_PATH" /var/www/html/moodle/mod
+          BACKUP_PATH="/tmp/${DEPLOY_TARGET}_backup_$TIMESTAMP.zip"
+
+          # Backup the current target directory
+          sudo zip -r "$BACKUP_PATH" "/var/www/html/moodle/$DEPLOY_TARGET"
           echo "Backup created at $BACKUP_PATH"
 
-      - name: Deploy new mod directory
+      - name: Deploy selected directory
         run: |
-          # Extract the zip file into the Moodle directory
-          sudo unzip -o ${{ env.MOD_ZIP_PATH }} -d /var/www/html/moodle/
-          echo "Deployed the new mod directory"
+          # Deploy the selected directory
+          sudo unzip -o ${{ env.ZIP_PATH }} -d "/var/www/html/moodle/"
+          echo "Deployed the new $DEPLOY_TARGET directory"
