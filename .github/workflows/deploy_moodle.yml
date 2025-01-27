@@ -7,33 +7,37 @@ on:
       - 'theme/**'  # Triggers when changes are pushed to the theme directory
 
 jobs:
-  deploy:
-    name: Deploy Moodle Plugin and Theme
-    runs-on: self-hosted
-
-    env:
-      MOODLE_SERVER_PRIVATE_IP: ${{ secrets.MOODLE_SERVER_PRIVATE_IP }}
+  fetch-and-build:
+    name: Fetch and Build Plugin and Theme
+    runs-on: ubuntu-latest  # GitHub-hosted runner for fetch and build steps
 
     steps:
-      # Step 1: Run pre-execution script on the self-hosted runner
-      - name: Run pre-execution script (./run.sh)
-        run: |
-          chmod +x /home/ubuntu/actions-runner/run.sh  
-          /home/ubuntu/actions-runner/run.sh
-
-        working-directory: /home/ubuntu/actions-runner  
-
-      # Step 2: Checkout the repository
+      # Step 1: Checkout the repository
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 1
 
-      # Step 3: Compress the plugin and theme directories
+      # Step 2: Fetch changes between the previous commit and the current one
+      - name: Fetch changes and identify modified files
+        run: |
+          git fetch origin ${{ github.event.before }} --depth=1
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -E '^mod/|^theme/')
+          echo "${CHANGED_FILES}" > changed_files.txt
+
+          # Check for changes in `mod` directory
+          MOD_CHANGED=$(echo "${CHANGED_FILES}" | grep '^mod/' || true)
+          echo "MOD_CHANGED=${MOD_CHANGED}" >> $GITHUB_ENV
+
+          # Check for changes in `theme` directory
+          THEME_CHANGED=$(echo "${CHANGED_FILES}" | grep '^theme/' || true)
+          echo "THEME_CHANGED=${THEME_CHANGED}" >> $GITHUB_ENV
+
+      # Step 3: Create ZIP files for plugin and theme if changes are detected
       - name: Create ZIPs for plugin and theme directories
         run: |
-          # Compress plugins
-          if [ -d "mod" ]; then
+          # Create ZIP for plugin directory if it has changes
+          if [ -n "$MOD_CHANGED" ]; then
             cd mod
             zip -r plugin.zip ./*
             mv plugin.zip ../plugin.zip
@@ -41,8 +45,8 @@ jobs:
             cd ..
           fi
 
-          # Compress themes
-          if [ -d "theme" ]; then
+          # Create ZIP for theme directory if it has changes
+          if [ -n "$THEME_CHANGED" ]; then
             cd theme
             zip -r theme.zip ./*
             mv theme.zip ../theme.zip
@@ -50,41 +54,54 @@ jobs:
             cd ..
           fi
 
-      # Step 4: Setup SSH key for server access
-      - name: Setup SSH key
-        run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ env.MOODLE_SERVER_PRIVATE_IP }} >> ~/.ssh/known_hosts
+  deploy:
+    name: Deploy on Self-hosted Runner (Moodle Server)
+    runs-on: self-hosted  # Self-hosted runner for deployment
 
-      # Step 5: Upload Plugin and Theme ZIPs to Moodle server
-      - name: Upload Plugin and Theme ZIPs to Moodle server
+    needs: fetch-and-build  # Ensure fetch-and-build job runs before deploy
+
+    env:
+      MOODLE_SERVER_PRIVATE_IP: ${{ secrets.MOODLE_SERVER_PRIVATE_IP }}
+
+    steps:
+      # Step 1: Checkout repository (on self-hosted runner)
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      # Step 2: Upload Plugin ZIP to Moodle server if mod has changed
+      - name: Upload Plugin ZIP to Moodle server
+        if: env.MOD_CHANGED != ''
         run: |
           if [ -f "plugin.zip" ]; then
-            scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa plugin.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
-            echo "Plugin ZIP uploaded to the Moodle server."
+            cp plugin.zip /var/www/html/moodle/mod/
+            echo "Plugin ZIP copied to the Moodle server."
           fi
 
+      # Step 3: Upload Theme ZIP to Moodle server if theme has changed
+      - name: Upload Theme ZIP to Moodle server
+        if: env.THEME_CHANGED != ''
+        run: |
           if [ -f "theme.zip" ]; then
-            scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa theme.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
-            echo "Theme ZIP uploaded to the Moodle server."
+            cp theme.zip /var/www/html/moodle/theme/
+            echo "Theme ZIP copied to the Moodle server."
           fi
 
-      # Step 6: Deploy Plugin and Theme on Moodle server
+      # Step 4: Deploy Plugin and Theme on Moodle server
       - name: Deploy Plugin and Theme
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }} << 'EOF'
-          # Deploy plugins if plugin.zip exists
-          if [ -f "/home/ubuntu/plugin.zip" ]; then
-            sudo unzip -o /home/ubuntu/plugin.zip -d /var/www/html/moodle/mod/
+          # Deploy plugin if plugin.zip exists
+          if [ -f "/var/www/html/moodle/mod/plugin.zip" ]; then
+            sudo unzip -o /var/www/html/moodle/mod/plugin.zip -d /var/www/html/moodle/mod/
             sudo chown -R www-data:www-data /var/www/html/moodle/mod/
             sudo chmod -R 755 /var/www/html/moodle/mod/
             echo "Plugin deployed."
           fi
 
-          # Deploy themes if theme.zip exists
-          if [ -f "/home/ubuntu/theme.zip" ]; then
-            sudo unzip -o /home/ubuntu/theme.zip -d /var/www/html/moodle/theme/
+          # Deploy theme if theme.zip exists
+          if [ -f "/var/www/html/moodle/theme/theme.zip" ]; then
+            sudo unzip -o /var/www/html/moodle/theme/theme.zip -d /var/www/html/moodle/theme/
             sudo chown -R www-data:www-data /var/www/html/moodle/theme/
             sudo chmod -R 755 /var/www/html/moodle/theme/
             echo "Theme deployed."
@@ -92,5 +109,4 @@ jobs:
 
           # Perform Moodle CLI upgrade
           sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
-          EOF
           echo "Plugin and Theme deployed and Moodle upgraded successfully."
