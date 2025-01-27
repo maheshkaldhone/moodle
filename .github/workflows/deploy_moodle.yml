@@ -6,9 +6,8 @@ on:
       - main
 
 jobs:
-  fetch-and-build:
-    runs-on: ubuntu-latest
-
+  fetch-and-deploy:
+    runs-on: self-hosted
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -17,32 +16,17 @@ jobs:
         run: |
           # Zip the `mod` directory
           zip -r mod.zip ./mod
-          # Set the zip file path as an environment variable to use in the deploy job
-          echo "MOD_ZIP_PATH=./mod.zip" >> $GITHUB_ENV
+          # Set the zip file path as an environment variable
+          echo "MOD_ZIP_PATH=$(pwd)/mod.zip" >> $GITHUB_ENV
 
-  deploy:
-   runs-on: self-hosted  # Using the Moodle server as the runner for deployment
-   needs: fetch-and-build
+      - name: Backup current mod directory
+        run: |
+          # Backup the current `mod` directory to `/tmp`
+          sudo mv /var/www/html/moodle/mod /tmp/mod_backup
+          echo "Backup created at /tmp/mod_backup"
 
-   steps:
-    - name: Checkout repository on self-hosted runner
-      uses: actions/checkout@v2
-
-    - name: Backup current mod directory
-      run: |
-        # Backup the current `mod` directory to `/tmp` using sudo to avoid permission issues
-        sudo mv /var/www/html/moodle/mod /tmp/mod_backup
-        echo "Backup created at /tmp/mod_backup"
-
-    - name: Verify zip file exists and check its contents
-      run: |
-        # Check if the zip file exists and list its contents
-        echo "Checking if mod.zip exists at ${{env.MOD_ZIP_PATH}}"
-        ls -l ${{env.MOD_ZIP_PATH}}
-        unzip -l ${{env.MOD_ZIP_PATH}}  # List the contents of the zip file
-
-    - name: Deploy new mod directory
-      run: |
-        # Extract the zip file into the mod directory
-        sudo unzip -o ${{env.MOD_ZIP_PATH}} -d /var/www/html/moodle/
-        echo "Deployed the new mod directory"
+      - name: Deploy new mod directory
+        run: |
+          # Extract the zip file into the Moodle directory
+          sudo unzip -o ${{ env.MOD_ZIP_PATH }} -d /var/www/html/moodle/
+          echo "Deployed the new mod directory"
