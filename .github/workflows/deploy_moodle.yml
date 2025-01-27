@@ -21,7 +21,7 @@ jobs:
           echo "MOD_ZIP_PATH=./mod.zip" >> $GITHUB_ENV
 
   deploy:
-    runs-on: [self-hosted, moodle-server]  # Using the Moodle server as the runner for deployment
+    runs-on: self-hosted
     needs: fetch-and-build
 
     steps:
