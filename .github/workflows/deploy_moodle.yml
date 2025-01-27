@@ -20,11 +20,11 @@ jobs:
           # Set the zip file path as an environment variable to use in the deploy job
           echo "MOD_ZIP_PATH=./mod.zip" >> $GITHUB_ENV
 
-deploy:
-  runs-on: self-hosted  # Using the Moodle server as the runner for deployment
-  needs: fetch-and-build
+  deploy:
+   runs-on: self-hosted  # Using the Moodle server as the runner for deployment
+   needs: fetch-and-build
 
-  steps:
+   steps:
     - name: Checkout repository on self-hosted runner
       uses: actions/checkout@v2
 
