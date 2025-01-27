@@ -21,7 +21,7 @@ jobs:
           echo "MOD_ZIP_PATH=./mod.zip" >> $GITHUB_ENV
 
   deploy:
-    runs-on: self-hosted
+    runs-on: [self-hosted, moodle-server]  # Using the Moodle server as the runner for deployment
     needs: fetch-and-build
 
     steps:
@@ -30,12 +30,12 @@ jobs:
 
       - name: Backup current mod directory
         run: |
-          # Backup the current `mod` directory to `/tmp`
-          mv /var/www/html/moodle/mod /tmp/mod_backup
+          # Backup the current `mod` directory to `/tmp` using sudo to avoid permission issues
+          sudo mv /var/www/html/moodle/mod /tmp/mod_backup
           echo "Backup created at /tmp/mod_backup"
 
       - name: Deploy new mod directory
         run: |
           # Extract the zip file into the mod directory
-          unzip ${{env.MOD_ZIP_PATH}} -d /var/www/html/moodle/
+          sudo unzip ${{env.MOD_ZIP_PATH}} -d /var/www/html/moodle/
           echo "Deployed the new mod directory"
