@@ -18,54 +18,50 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Check if deploy_target is provided
-        run: |
-          # Ensure that deploy_target has been selected
-          if [[ -z "${{ github.event.inputs.deploy_target }}" ]]; then
-            echo "No deploy_target selected. Exiting the workflow."
-            exit 1
-          fi
-
-      - name: Zip the mod or theme directory
+      - name: Zip selected directory
         run: |
           # Define the deploy target (mod or theme)
           DEPLOY_TARGET="${{ github.event.inputs.deploy_target }}"
-          echo "Deploying target: $DEPLOY_TARGET"
-          
-          # Zip the selected directory (mod or theme)
+
           if [ "$DEPLOY_TARGET" == "mod" ]; then
+            # Zip the `mod` directory
             zip -r mod.zip ./mod
             echo "MOD_ZIP_PATH=$(pwd)/mod.zip" >> $GITHUB_ENV
+            echo "Zipped the mod directory"
           elif [ "$DEPLOY_TARGET" == "theme" ]; then
+            # Zip the `theme` directory
             zip -r theme.zip ./theme
             echo "THEME_ZIP_PATH=$(pwd)/theme.zip" >> $GITHUB_ENV
+            echo "Zipped the theme directory"
           fi
 
-      - name: Backup current directory (mod or theme)
+      - name: Backup current directory
         run: |
-          # Define the deploy target (mod or theme)
-          DEPLOY_TARGET="${{ github.event.inputs.deploy_target }}"
-          
           # Create a timestamp for the backup
           TIMESTAMP=$(date +'%Y%m%d%H%M%S')
-          if [ "$DEPLOY_TARGET" == "mod" ]; then
+          if [ "${{ github.event.inputs.deploy_target }}" == "mod" ]; then
             BACKUP_PATH="/tmp/mod_backup_$TIMESTAMP.zip"
+            # Zip the current mod directory with the timestamp in the name
             sudo zip -r "$BACKUP_PATH" /var/www/html/moodle/mod
             echo "Backup created at $BACKUP_PATH"
-          elif [ "$DEPLOY_TARGET" == "theme" ]; then
+          elif [ "${{ github.event.inputs.deploy_target }}" == "theme" ]; then
             BACKUP_PATH="/tmp/theme_backup_$TIMESTAMP.zip"
+            # Zip the current theme directory with the timestamp in the name
             sudo zip -r "$BACKUP_PATH" /var/www/html/moodle/theme
             echo "Backup created at $BACKUP_PATH"
           fi
 
-      - name: Deploy new directory (mod or theme)
+      - name: Deploy new directory
         run: |
           # Define the deploy target (mod or theme)
           DEPLOY_TARGET="${{ github.event.inputs.deploy_target }}"
-          
+
           if [ "$DEPLOY_TARGET" == "mod" ]; then
+            # Extract the mod zip file into the mod directory
             sudo unzip -o ${{ env.MOD_ZIP_PATH }} -d /var/www/html/moodle/
             echo "Deployed the new mod directory"
           elif [ "$DEPLOY_TARGET" == "theme" ]; then
+            # Extract the theme zip file into the theme directory
             sudo unzip -o ${{ env.THEME_ZIP_PATH }} -d /var/www/html/moodle/
             echo "Deployed the new theme directory"
+          fi
