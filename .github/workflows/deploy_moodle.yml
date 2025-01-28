@@ -26,13 +26,6 @@ jobs:
           echo "Changed directories: $CHANGED_DIRS"
           echo "::set-output name=changed_dirs::$CHANGED_DIRS"
 
-      # Step 3: Await Manual Approval before proceeding
-      - name: Await Manual Approval
-        uses: github-actions-manual-approval-action@v1 # A placeholder for the GitHub built-in manual approval
-        with:
-          reviewers: ['maheshkaldhone']
-        run: echo "Approval required from reviewers before continuing."
-
       # Step 4: Create ZIP Artifacts for changed directories
       - name: Create ZIP Artifacts
         run: |
