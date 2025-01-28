@@ -22,15 +22,17 @@ jobs:
       - name: Detect Changed Directories
         id: detect_changes
         run: |
-          CHANGED_DIRS=$(git diff --name-only HEAD^ HEAD | grep '^mod/' | cut -d '/' -f2 | sort | uniq)
+          CHANGED_DIRS=$(git diff --name-only HEAD | grep '^mod/' | cut -d '/' -f2 | sort | uniq)
           echo "Changed directories: $CHANGED_DIRS"
-          echo "::set-output name=changed_dirs::$CHANGED_DIRS"
+          
+          # Save the changed directories to an environment file
+          echo "changed_dirs=$CHANGED_DIRS" >> $GITHUB_ENV
 
       # Step 3: Create ZIP Artifacts for changed directories
       - name: Create ZIP Artifacts
         run: |
           mkdir -p /home/ubuntu/artifact
-          for DIR in ${{ steps.detect_changes.outputs.changed_dirs }}; do
+          for DIR in ${{ env.changed_dirs }}; do
             cd mod/$DIR
             zip -r /home/ubuntu/artifact/${DIR}.zip ./*
             cd ../../
@@ -40,7 +42,7 @@ jobs:
       # Step 4: Backup Existing Directories on the Moodle server
       - name: Backup Existing Directories
         run: |
-          for DIR in ${{ steps.detect_changes.outputs.changed_dirs }}; do
+          for DIR in ${{ env.changed_dirs }}; do
             TIMESTAMP=$(date +%Y%m%d%H%M%S)
             sudo zip -r /tmp/${DIR}_backup_${TIMESTAMP}.zip ${{ env.MOODLE_SERVER_PATH }}${DIR}/
             echo "Backup created: /tmp/${DIR}_backup_${TIMESTAMP}.zip"
@@ -49,7 +51,7 @@ jobs:
       # Step 5: Deploy the Plugin ZIPs to Moodle server
       - name: Deploy Plugin
         run: |
-          for DIR in ${{ steps.detect_changes.outputs.changed_dirs }}; do
+          for DIR in ${{ env.changed_dirs }}; do
             echo "Deploying plugin for directory: ${DIR}"
 
             # Unzip the artifact directly on the server
