@@ -1,67 +1,69 @@
-name: Moodle Deployment
+name: Moodle Plugin Deployment Workflow
 
 on:
-  workflow_dispatch:
-    inputs:
-      deploy_target:
-        description: "Specify the directory to deploy (mod or theme)"
-        required: true
-        type: choice
-        options:
-          - mod
-          - theme
+  workflow_dispatch: # Enables manual trigger
 
 jobs:
-  fetch-and-deploy:
+  deploy:
+    name: Deploy Moodle Plugin
     runs-on: self-hosted
+
+    env:
+      MOODLE_SERVER_PATH: /var/www/html/moodle/mod/ # Moodle plugins directory
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+      # Step 1: Checkout the repository
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
 
-      - name: Zip selected directory
+      # Step 2: Detect changed directories under /mod
+      - name: Detect Changed Directories
+        id: detect_changes
         run: |
-          # Define the deploy target (mod or theme)
-          DEPLOY_TARGET="${{ github.event.inputs.deploy_target }}"
+          CHANGED_DIRS=$(git diff --name-only HEAD^ HEAD | grep '^mod/' | cut -d '/' -f2 | sort | uniq)
+          echo "Changed directories: $CHANGED_DIRS"
+          echo "::set-output name=changed_dirs::$CHANGED_DIRS"
 
-          if [ "$DEPLOY_TARGET" == "mod" ]; then
-            # Zip the `mod` directory
-            zip -r mod.zip ./mod
-            echo "MOD_ZIP_PATH=$(pwd)/mod.zip" >> $GITHUB_ENV
-            echo "Zipped the mod directory"
-          elif [ "$DEPLOY_TARGET" == "theme" ]; then
-            # Zip the `theme` directory
-            zip -r theme.zip ./theme
-            echo "THEME_ZIP_PATH=$(pwd)/theme.zip" >> $GITHUB_ENV
-            echo "Zipped the theme directory"
-          fi
+      # Step 3: Await Manual Approval before proceeding
+      - name: Await Manual Approval
+        uses: github-actions-manual-approval-action@v1 # A placeholder for the GitHub built-in manual approval
+        with:
+          reviewers: ['maheshkaldhone']
+        run: echo "Approval required from reviewers before continuing."
 
-      - name: Backup current directory
+      # Step 4: Create ZIP Artifacts for changed directories
+      - name: Create ZIP Artifacts
         run: |
-          # Create a timestamp for the backup
-          TIMESTAMP=$(date +'%Y%m%d%H%M%S')
-          if [ "${{ github.event.inputs.deploy_target }}" == "mod" ]; then
-            BACKUP_PATH="/tmp/mod_backup_$TIMESTAMP.zip"
-            # Zip the current mod directory with the timestamp in the name
-            sudo zip -r "$BACKUP_PATH" /var/www/html/moodle/mod
-            echo "Backup created at $BACKUP_PATH"
-          elif [ "${{ github.event.inputs.deploy_target }}" == "theme" ]; then
-            BACKUP_PATH="/tmp/theme_backup_$TIMESTAMP.zip"
-            # Zip the current theme directory with the timestamp in the name
-            sudo zip -r "$BACKUP_PATH" /var/www/html/moodle/theme
-            echo "Backup created at $BACKUP_PATH"
-          fi
+          mkdir -p /home/ubuntu/artifact
+          for DIR in ${{ needs.detect_changes.outputs.changed_dirs }}; do
+            cd mod/$DIR
+            zip -r /home/ubuntu/artifact/${DIR}.zip ./*
+            cd ../../
+            echo "Created artifact: /home/ubuntu/artifact/${DIR}.zip"
+          done
 
-      - name: Deploy new directory
+      # Step 5: Backup Existing Directories on the Moodle server
+      - name: Backup Existing Directories
         run: |
-          # Define the deploy target (mod or theme)
-          DEPLOY_TARGET="${{ github.event.inputs.deploy_target }}"
+          for DIR in ${{ needs.detect_changes.outputs.changed_dirs }}; do
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
+            sudo zip -r /tmp/${DIR}_backup_${TIMESTAMP}.zip ${{ env.MOODLE_SERVER_PATH }}${DIR}/
+            echo "Backup created: /tmp/${DIR}_backup_${TIMESTAMP}.zip"
+          done
 
-          if [ "$DEPLOY_TARGET" == "mod" ]; then
-            # Extract the mod zip file into the mod directory
-            sudo unzip -o ${{ env.MOD_ZIP_PATH }} -d /var/www/html/moodle/
-            echo "Deployed the new mod directory"
-          elif [ "$DEPLOY_TARGET" == "theme" ]; then
-            # Extract the theme zip file into the theme directory
-            sudo unzip -o ${{ env.THEME_ZIP_PATH }} -d /var/www/html/moodle/
-            echo "Deployed the new theme directory"
-          fi
+      # Step 6: Deploy the Plugin ZIPs to Moodle server
+      - name: Deploy Plugin
+        run: |
+          for DIR in ${{ needs.detect_changes.outputs.changed_dirs }}; do
+            scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa /home/ubuntu/artifact/${DIR}.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
+            echo "Plugin ZIP uploaded to Moodle server."
+            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }} << EOF
+              sudo unzip -o /home/ubuntu/${DIR}.zip -d /var/www/html/moodle/mod/
+              sudo chown -R www-data:www-data /var/www/html/moodle/mod/
+              sudo chmod -R 755 /var/www/html/moodle/mod/
+              sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
+            EOF
+            echo "Plugin deployed and Moodle upgraded successfully."
+          done
