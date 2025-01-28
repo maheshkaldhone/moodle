@@ -26,37 +26,37 @@ jobs:
           echo "Changed directories: $CHANGED_DIRS"
           echo "::set-output name=changed_dirs::$CHANGED_DIRS"
 
-      # Step 4: Create ZIP Artifacts for changed directories
+      # Step 3: Create ZIP Artifacts for changed directories
       - name: Create ZIP Artifacts
         run: |
           mkdir -p /home/ubuntu/artifact
-          for DIR in ${{ needs.detect_changes.outputs.changed_dirs }}; do
+          for DIR in ${{ steps.detect_changes.outputs.changed_dirs }}; do
             cd mod/$DIR
             zip -r /home/ubuntu/artifact/${DIR}.zip ./*
             cd ../../
             echo "Created artifact: /home/ubuntu/artifact/${DIR}.zip"
           done
 
-      # Step 5: Backup Existing Directories on the Moodle server
+      # Step 4: Backup Existing Directories on the Moodle server
       - name: Backup Existing Directories
         run: |
-          for DIR in ${{ needs.detect_changes.outputs.changed_dirs }}; do
+          for DIR in ${{ steps.detect_changes.outputs.changed_dirs }}; do
             TIMESTAMP=$(date +%Y%m%d%H%M%S)
             sudo zip -r /tmp/${DIR}_backup_${TIMESTAMP}.zip ${{ env.MOODLE_SERVER_PATH }}${DIR}/
             echo "Backup created: /tmp/${DIR}_backup_${TIMESTAMP}.zip"
           done
 
-      # Step 6: Deploy the Plugin ZIPs to Moodle server
+      # Step 5: Deploy the Plugin ZIPs to Moodle server
       - name: Deploy Plugin
         run: |
-          for DIR in ${{ needs.detect_changes.outputs.changed_dirs }}; do
-            scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa /home/ubuntu/artifact/${DIR}.zip ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }}:/home/ubuntu/
-            echo "Plugin ZIP uploaded to Moodle server."
-            ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ubuntu@${{ env.MOODLE_SERVER_PRIVATE_IP }} << EOF
-              sudo unzip -o /home/ubuntu/${DIR}.zip -d /var/www/html/moodle/mod/
-              sudo chown -R www-data:www-data /var/www/html/moodle/mod/
-              sudo chmod -R 755 /var/www/html/moodle/mod/
-              sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
-            EOF
+          for DIR in ${{ steps.detect_changes.outputs.changed_dirs }}; do
+            echo "Deploying plugin for directory: ${DIR}"
+
+            # Unzip the artifact directly on the server
+            sudo unzip -o /home/ubuntu/artifact/${DIR}.zip -d /var/www/html/moodle/mod/
+            sudo chown -R www-data:www-data /var/www/html/moodle/mod/
+            sudo chmod -R 755 /var/www/html/moodle/mod/
+            sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
+
             echo "Plugin deployed and Moodle upgraded successfully."
           done
