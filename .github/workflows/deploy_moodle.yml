@@ -16,16 +16,27 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 1
+          fetch-depth: 2  # Fetch at least 2 commits to compare changes
 
       # Step 2: Detect changed directories under /mod
       - name: Detect Changed Directories
         id: detect_changes
         run: |
-          CHANGED_DIRS=$(git diff --name-only HEAD | grep '^mod/' | cut -d '/' -f2 | sort | uniq)
+          # Ensure we have the history from at least 2 commits
+          git fetch --depth=2
+          
+          # Get the list of changed directories under 'mod/'
+          CHANGED_DIRS=$(git diff --name-only HEAD~1 HEAD | grep '^mod/' | cut -d '/' -f2 | sort | uniq)
+
+          # Check if any directories were detected
+          if [ -z "$CHANGED_DIRS" ]; then
+            echo "No changed directories detected."
+            exit 1
+          fi
+
           echo "Changed directories: $CHANGED_DIRS"
           
-          # Save the changed directories to an environment file
+          # Set the environment variable for use in later steps
           echo "changed_dirs=$CHANGED_DIRS" >> $GITHUB_ENV
 
       # Step 3: Create ZIP Artifacts for changed directories
@@ -33,6 +44,7 @@ jobs:
         run: |
           mkdir -p /home/ubuntu/artifact
           for DIR in ${{ env.changed_dirs }}; do
+            echo "Creating ZIP for directory: $DIR"
             cd mod/$DIR
             zip -r /home/ubuntu/artifact/${DIR}.zip ./*
             cd ../../
